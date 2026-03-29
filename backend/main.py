@@ -67,21 +67,30 @@ def get_video_info(video_id: str) -> dict:
     }
 
 
-def get_top_comments(video_id: str, max_results: int = 30) -> list[str]:
+TIMESTAMP_RE = re.compile(r"\d{1,2}:\d{2}")
+
+
+def get_setlist_candidate_comments(video_id: str) -> list[str]:
+    """タイムスタンプを含むコメントを優先して最大100件から抽出する。"""
     yt = get_youtube_client()
     try:
         resp = yt.commentThreads().list(
             part="snippet",
             videoId=video_id,
             order="relevance",
-            maxResults=max_results,
+            maxResults=100,
         ).execute()
     except Exception:
         return []
-    return [
-        item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+
+    all_texts = [
+        item["snippet"]["topLevelComment"]["snippet"].get("textOriginal", "")
         for item in resp.get("items", [])
     ]
+
+    # タイムスタンプを含むコメントを優先（セットリストの可能性が高い）
+    with_timestamps = [t for t in all_texts if TIMESTAMP_RE.search(t)]
+    return with_timestamps if with_timestamps else all_texts
 
 
 SETLIST_PROMPT = """\
@@ -144,9 +153,9 @@ async def get_setlist(url: str = Query(..., description="YouTube URL")):
     setlist_result = extract_setlist_with_gemini(video_info["description"])
     source = "description"
 
-    # 2. 概要欄になければコメント欄を検索
+    # 2. 概要欄になければコメント欄を検索（タイムスタンプ含むコメント優先）
     if not setlist_result.get("found"):
-        comments = get_top_comments(video_id)
+        comments = get_setlist_candidate_comments(video_id)
         if comments:
             combined = "\n\n---\n\n".join(comments)
             setlist_result = extract_setlist_with_gemini(combined)
