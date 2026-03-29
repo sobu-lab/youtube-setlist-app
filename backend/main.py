@@ -145,7 +145,13 @@ def extract_setlist(text: str, provider=AI_PROVIDER) -> dict:
             openai_client = OpenAI(api_key=OPENAI_API_KEY)
             response = openai_client.chat.completions.create(
                 model="gpt-5.4-nano",  # レシピ抽出なら安くて速い mini で十分です
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that outputs JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
                 response_format={"type": "json_object"},  # JSON で返るよう強制
             )
             return parse_gemini_json(response.choices[0].message.content)
