@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* YouTube IFrame を親要素に合わせてリサイズ */
+.yt-player,
+.yt-player iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
