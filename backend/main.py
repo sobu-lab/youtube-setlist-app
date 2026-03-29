@@ -27,7 +27,7 @@ gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
 
 def extract_video_id(url: str) -> str:
     patterns = [
-        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([^&\n?#]+)",
+        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/live/)([^&\n?#]+)",
         r"^([a-zA-Z0-9_-]{11})$",
     ]
     for pattern in patterns:
