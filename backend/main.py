@@ -70,8 +70,14 @@ def get_video_info(video_id: str) -> dict:
 TIMESTAMP_RE = re.compile(r"\d{1,2}:\d{2}")
 
 
-def get_setlist_candidate_comments(video_id: str) -> list[str]:
-    """タイムスタンプを含むコメントを優先して最大100件から抽出する。"""
+def extract_timestamp_lines(text: str) -> str:
+    """タイムスタンプを含む行だけを抽出して返す。"""
+    lines = [l for l in text.splitlines() if TIMESTAMP_RE.search(l)]
+    return "\n".join(lines)
+
+
+def get_best_setlist_comment(video_id: str) -> str:
+    """タイムスタンプ行が最も多いコメント1件のタイムスタンプ行を返す。"""
     yt = get_youtube_client()
     try:
         resp = yt.commentThreads().list(
@@ -81,45 +87,26 @@ def get_setlist_candidate_comments(video_id: str) -> list[str]:
             maxResults=100,
         ).execute()
     except Exception:
-        return []
+        return ""
 
-    all_texts = [
-        item["snippet"]["topLevelComment"]["snippet"].get("textOriginal", "")
-        for item in resp.get("items", [])
-    ]
+    best = ""
+    best_count = 0
+    for item in resp.get("items", []):
+        text = item["snippet"]["topLevelComment"]["snippet"].get("textOriginal", "")
+        count = sum(1 for l in text.splitlines() if TIMESTAMP_RE.search(l))
+        if count > best_count:
+            best_count = count
+            best = text
 
-    # タイムスタンプを含むコメントを優先（セットリストの可能性が高い）
-    with_timestamps = [t for t in all_texts if TIMESTAMP_RE.search(t)]
-    return with_timestamps if with_timestamps else all_texts
+    return extract_timestamp_lines(best) if best_count > 0 else ""
 
 
 SETLIST_PROMPT = """\
-あなたはYouTube歌枠配信のセットリスト抽出の専門家です。
+以下の行からYouTube歌枠のセットリストを抽出しJSONのみ返せ。
+形式: {{"found":true,"setlist":[{{"index":1,"timestamp":"0:00","timestamp_seconds":0,"song_title":"曲名","artist":"アーティスト名またはnull"}}]}}
+見つからない場合: {{"found":false,"setlist":[]}}
 
-以下のテキストから歌のセットリスト（曲目リスト）を抽出してください。
-タイムスタンプ（例: 0:00, 1:23:45, [00:00]）と曲名のペアを探してください。
-
-テキスト:
----
-{text}
----
-
-必ずJSON形式のみで返してください（マークダウン・説明文不要）:
-{{
-  "found": true,
-  "setlist": [
-    {{
-      "index": 1,
-      "timestamp": "0:00",
-      "timestamp_seconds": 0,
-      "song_title": "曲名",
-      "artist": "アーティスト名（不明な場合はnull）"
-    }}
-  ]
-}}
-
-セットリストが見つからない場合:
-{{"found": false, "setlist": []}}\
+{text}\
 """
 
 
@@ -130,9 +117,9 @@ def parse_gemini_json(text: str) -> dict:
 
 
 def extract_setlist_with_gemini(text: str) -> dict:
-    if not text or len(text.strip()) < 10:
+    if not text or len(text.strip()) < 5:
         return {"found": False, "setlist": []}
-    prompt = SETLIST_PROMPT.format(text=text[:8000])
+    prompt = SETLIST_PROMPT.format(text=text[:2000])
     try:
         resp = gemini_model.generate_content(prompt)
         return parse_gemini_json(resp.text)
@@ -149,17 +136,16 @@ async def get_setlist(url: str = Query(..., description="YouTube URL")):
 
     video_info = get_video_info(video_id)
 
-    # 1. 概要欄からセットリストを抽出
-    setlist_result = extract_setlist_with_gemini(video_info["description"])
+    # 1. 概要欄のタイムスタンプ行のみ抽出してGeminiへ
+    desc_lines = extract_timestamp_lines(video_info["description"])
+    setlist_result = extract_setlist_with_gemini(desc_lines)
     source = "description"
 
-    # 2. 概要欄になければコメント欄を検索（タイムスタンプ含むコメント優先）
+    # 2. 概要欄になければコメント欄からタイムスタンプ行最多の1件を使用
     if not setlist_result.get("found"):
-        comments = get_setlist_candidate_comments(video_id)
-        if comments:
-            combined = "\n\n---\n\n".join(comments)
-            setlist_result = extract_setlist_with_gemini(combined)
-            source = "comments"
+        comment_lines = get_best_setlist_comment(video_id)
+        setlist_result = extract_setlist_with_gemini(comment_lines)
+        source = "comments"
 
     return {
         "video_id": video_id,
