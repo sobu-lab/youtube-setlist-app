@@ -3,6 +3,7 @@ import re
 import json
 import googleapiclient.discovery
 import google.generativeai as genai
+from openai import OpenAI
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,9 +21,8 @@ app.add_middleware(
 
 YOUTUBE_API_KEY = os.environ["YOUTUBE_API_KEY"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+AI_PROVIDER = os.environ["AI_PROVIDER"]
 
 
 def extract_video_id(url: str) -> str:
@@ -38,7 +38,9 @@ def extract_video_id(url: str) -> str:
 
 
 def get_youtube_client():
-    return googleapiclient.discovery.build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+    return googleapiclient.discovery.build(
+        "youtube", "v3", developerKey=YOUTUBE_API_KEY
+    )
 
 
 def get_video_info(video_id: str) -> dict:
@@ -80,12 +82,16 @@ def get_best_setlist_comment(video_id: str) -> str:
     """タイムスタンプ行が最も多いコメント1件のタイムスタンプ行を返す。"""
     yt = get_youtube_client()
     try:
-        resp = yt.commentThreads().list(
-            part="snippet",
-            videoId=video_id,
-            order="relevance",
-            maxResults=100,
-        ).execute()
+        resp = (
+            yt.commentThreads()
+            .list(
+                part="snippet",
+                videoId=video_id,
+                order="relevance",
+                maxResults=100,
+            )
+            .execute()
+        )
     except Exception:
         return ""
 
@@ -123,6 +129,34 @@ def extract_setlist_with_gemini(text: str) -> dict:
     try:
         resp = gemini_model.generate_content(prompt)
         return parse_gemini_json(resp.text)
+    except Exception as e:
+        return {"found": False, "setlist": [], "error": str(e)}
+
+
+def extract_setlist(text: str, provider=AI_PROVIDER) -> dict:
+    if not text or len(text.strip()) < 5:
+        return {"found": False, "setlist": []}
+
+    prompt = SETLIST_PROMPT.format(text=text[:2000])
+
+    try:
+        if provider == "openai":
+            # OpenAI を使用する場合
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            response = openai_client.chat.completions.create(
+                model="gpt-5.4-nano",  # レシピ抽出なら安くて速い mini で十分です
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},  # JSON で返るよう強制
+            )
+            return parse_gemini_json(response.choices[0].message.content)
+
+        elif provider == "gemini":
+            # Gemini を使用する場合（既存の処理）
+            genai.configure(api_key=GEMINI_API_KEY)
+            gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+            resp = gemini_model.generate_content(prompt)
+            return parse_gemini_json(resp.text)
+
     except Exception as e:
         return {"found": False, "setlist": [], "error": str(e)}
 
@@ -177,5 +211,6 @@ if static_dir.exists():
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
