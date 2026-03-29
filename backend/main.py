@@ -172,13 +172,13 @@ async def get_setlist(url: str = Query(..., description="YouTube URL")):
 
     # 1. 概要欄のタイムスタンプ行のみ抽出してGeminiへ
     desc_lines = extract_timestamp_lines(video_info["description"])
-    setlist_result = extract_setlist_with_gemini(desc_lines)
+    setlist_result = extract_setlist(desc_lines)
     source = "description"
 
     # 2. 概要欄になければコメント欄からタイムスタンプ行最多の1件を使用
     if not setlist_result.get("found"):
         comment_lines = get_best_setlist_comment(video_id)
-        setlist_result = extract_setlist_with_gemini(comment_lines)
+        setlist_result = extract_setlist(comment_lines)
         source = "comments"
 
     return {
