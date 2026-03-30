@@ -5,14 +5,14 @@ import logging
 import googleapiclient.discovery
 import google.generativeai as genai
 from openai import OpenAI
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="YouTube Setlist API")
 
@@ -24,9 +24,21 @@ app.add_middleware(
 )
 
 YOUTUBE_API_KEY = os.environ["YOUTUBE_API_KEY"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-AI_PROVIDER = os.environ["AI_PROVIDER"]
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini")
+
+# クライアントをモジュール起動時に1回だけ生成
+if AI_PROVIDER == "openai" and OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+else:
+    openai_client = None
+
+if AI_PROVIDER == "gemini" and GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+else:
+    gemini_model = None
 
 
 def extract_video_id(url: str) -> str:
@@ -120,55 +132,40 @@ SETLIST_PROMPT = """\
 """
 
 
-def parse_gemini_json(text: str) -> dict:
+def parse_ai_json(text: str) -> dict:
     text = re.sub(r"```json\s*", "", text)
     text = re.sub(r"```\s*", "", text)
     return json.loads(text.strip())
 
 
-def extract_setlist_with_gemini(text: str) -> dict:
-    if not text or len(text.strip()) < 5:
-        return {"found": False, "setlist": []}
-    prompt = SETLIST_PROMPT.format(text=text[:2000])
-    try:
-        resp = gemini_model.generate_content(prompt)
-        return parse_gemini_json(resp.text)
-    except Exception as e:
-        return {"found": False, "setlist": [], "error": str(e)}
-
-
-def extract_setlist(text: str, provider=AI_PROVIDER) -> dict:
+def extract_setlist(text: str) -> dict:
     if not text or len(text.strip()) < 5:
         return {"found": False, "setlist": []}
 
     prompt = SETLIST_PROMPT.format(text=text[:2000])
 
     try:
-        if provider == "openai":
-            # OpenAI を使用する場合
-            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        if AI_PROVIDER == "openai" and openai_client:
             response = openai_client.chat.completions.create(
                 model="gpt-5.4-nano",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant that outputs JSON.",
-                    },
+                    {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
                     {"role": "user", "content": prompt},
                 ],
-                response_format={"type": "json_object"},  # JSON で返るよう強制
+                response_format={"type": "json_object"},
             )
-            return parse_gemini_json(response.choices[0].message.content)
+            return parse_ai_json(response.choices[0].message.content)
 
-        elif provider == "gemini":
-            # Gemini を使用する場合（既存の処理）
-            genai.configure(api_key=GEMINI_API_KEY)
-            gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+        elif AI_PROVIDER == "gemini" and gemini_model:
             resp = gemini_model.generate_content(prompt)
-            return parse_gemini_json(resp.text)
+            return parse_ai_json(resp.text)
+
+        else:
+            logger.error(f"AI provider '{AI_PROVIDER}' が設定されていないか、APIキーが未設定です")
+            return {"found": False, "setlist": []}
 
     except Exception as e:
-        logger.error(f"AI extraction error (provider={provider}): {type(e).__name__}: {e}")
+        logger.error(f"AI extraction error (provider={AI_PROVIDER}): {type(e).__name__}: {e}")
         return {"found": False, "setlist": [], "error": str(e)}
 
 
@@ -181,7 +178,7 @@ async def get_setlist(url: str = Query(..., description="YouTube URL")):
 
     video_info = get_video_info(video_id)
 
-    # 1. 概要欄のタイムスタンプ行のみ抽出してGeminiへ
+    # 1. 概要欄のタイムスタンプ行のみ抽出してAIへ
     desc_lines = extract_timestamp_lines(video_info["description"])
     setlist_result = extract_setlist(desc_lines)
     source = "description"
