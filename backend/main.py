@@ -148,7 +148,7 @@ def extract_setlist(text: str, provider=AI_PROVIDER) -> dict:
             # OpenAI を使用する場合
             openai_client = OpenAI(api_key=OPENAI_API_KEY)
             response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5.4-nano",
                 messages=[
                     {
                         "role": "system",
