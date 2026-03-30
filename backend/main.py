@@ -26,8 +26,6 @@ app.add_middleware(
 YOUTUBE_API_KEY = os.environ["YOUTUBE_API_KEY"]
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini")
-
 # 利用可能なクライアントをすべて起動時に初期化
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -170,14 +168,16 @@ def extract_setlist(text: str, provider: str) -> dict:
 
 @app.get("/api/info")
 async def get_info():
-    return {"ai_provider": AI_PROVIDER, "available_providers": AVAILABLE_PROVIDERS}
+    return {"ai_provider": AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else "", "available_providers": AVAILABLE_PROVIDERS}
 
 
 @app.get("/api/setlist")
 async def get_setlist(
     url: str = Query(..., description="YouTube URL"),
-    provider: str = Query(default=AI_PROVIDER, description="AIプロバイダー (openai / gemini)"),
+    provider: str = Query(default=None, description="AIプロバイダー (openai / gemini)"),
 ):
+    if provider is None:
+        provider = AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else ""
     if provider not in AVAILABLE_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"利用できないプロバイダーです: {provider}")
 
