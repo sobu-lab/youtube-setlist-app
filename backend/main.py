@@ -1,9 +1,13 @@
 import os
 import re
 import json
+import logging
 import googleapiclient.discovery
 import google.generativeai as genai
 from openai import OpenAI
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -164,6 +168,7 @@ def extract_setlist(text: str, provider=AI_PROVIDER) -> dict:
             return parse_gemini_json(resp.text)
 
     except Exception as e:
+        logger.error(f"AI extraction error (provider={provider}): {type(e).__name__}: {e}")
         return {"found": False, "setlist": [], "error": str(e)}
 
 
