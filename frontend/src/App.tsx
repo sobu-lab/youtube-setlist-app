@@ -16,13 +16,17 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<SetlistResponse | null>(null)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const [aiProvider, setAiProvider] = useState<string>('')
+  const [provider, setProvider] = useState<string>('gemini')
+  const [availableProviders, setAvailableProviders] = useState<string[]>([])
   const playerRef = useRef<PlayerRef>(null)
 
   useEffect(() => {
     fetch('/api/info')
       .then((r) => r.json())
-      .then((d) => setAiProvider(d.ai_provider))
+      .then((d) => {
+        setProvider(d.ai_provider)
+        setAvailableProviders(d.available_providers ?? [])
+      })
       .catch(() => {})
   }, [])
 
@@ -32,7 +36,7 @@ export default function App() {
     setData(null)
     setActiveIndex(null)
     try {
-      const result = await fetchSetlist(url)
+      const result = await fetchSetlist(url, provider)
       setData(result)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '不明なエラーが発生しました')
@@ -56,8 +60,23 @@ export default function App() {
         <div className="max-w-6xl mx-auto flex items-center gap-3">
           <span className="text-2xl">🎵</span>
           <h1 className="text-xl font-bold text-purple-400">歌枠セットリスト</h1>
-          {aiProvider && (
-            <span className="text-xs text-gray-600 ml-2">powered by {aiProvider}</span>
+          {/* AIプロバイダー切り替え */}
+          {availableProviders.length > 0 && (
+            <div className="ml-3 flex items-center gap-1 bg-gray-800 rounded-full p-1">
+              {availableProviders.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    provider === p
+                      ? 'bg-purple-600 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {p === 'openai' ? 'OpenAI' : 'Gemini'}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </header>
@@ -77,7 +96,7 @@ export default function App() {
         {loading && (
           <div className="mt-12 flex flex-col items-center gap-4 text-gray-400">
             <div className="w-10 h-10 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-            <p>Geminiがセットリストを解析中...</p>
+            <p>{provider === 'openai' ? 'OpenAI' : 'Gemini'} がセットリストを解析中...</p>
             <p className="text-xs text-gray-600">概要欄・コメント欄を確認しています</p>
           </div>
         )}

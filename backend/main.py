@@ -28,17 +28,16 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini")
 
-# クライアントをモジュール起動時に1回だけ生成
-if AI_PROVIDER == "openai" and OPENAI_API_KEY:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
-else:
-    openai_client = None
+# 利用可能なクライアントをすべて起動時に初期化
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-if AI_PROVIDER == "gemini" and GEMINI_API_KEY:
+if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
 else:
     gemini_model = None
+
+AVAILABLE_PROVIDERS = [p for p, ok in [("openai", bool(openai_client)), ("gemini", bool(gemini_model))] if ok]
 
 
 def extract_video_id(url: str) -> str:
@@ -138,14 +137,14 @@ def parse_ai_json(text: str) -> dict:
     return json.loads(text.strip())
 
 
-def extract_setlist(text: str) -> dict:
+def extract_setlist(text: str, provider: str) -> dict:
     if not text or len(text.strip()) < 5:
         return {"found": False, "setlist": []}
 
     prompt = SETLIST_PROMPT.format(text=text[:2000])
 
     try:
-        if AI_PROVIDER == "openai" and openai_client:
+        if provider == "openai" and openai_client:
             response = openai_client.chat.completions.create(
                 model="gpt-5.4-nano",
                 messages=[
@@ -156,26 +155,32 @@ def extract_setlist(text: str) -> dict:
             )
             return parse_ai_json(response.choices[0].message.content)
 
-        elif AI_PROVIDER == "gemini" and gemini_model:
+        elif provider == "gemini" and gemini_model:
             resp = gemini_model.generate_content(prompt)
             return parse_ai_json(resp.text)
 
         else:
-            logger.error(f"AI provider '{AI_PROVIDER}' が設定されていないか、APIキーが未設定です")
+            logger.error(f"AI provider '{provider}' が設定されていないか、APIキーが未設定です")
             return {"found": False, "setlist": []}
 
     except Exception as e:
-        logger.error(f"AI extraction error (provider={AI_PROVIDER}): {type(e).__name__}: {e}")
+        logger.error(f"AI extraction error (provider={provider}): {type(e).__name__}: {e}")
         return {"found": False, "setlist": [], "error": str(e)}
 
 
 @app.get("/api/info")
 async def get_info():
-    return {"ai_provider": AI_PROVIDER}
+    return {"ai_provider": AI_PROVIDER, "available_providers": AVAILABLE_PROVIDERS}
 
 
 @app.get("/api/setlist")
-async def get_setlist(url: str = Query(..., description="YouTube URL")):
+async def get_setlist(
+    url: str = Query(..., description="YouTube URL"),
+    provider: str = Query(default=AI_PROVIDER, description="AIプロバイダー (openai / gemini)"),
+):
+    if provider not in AVAILABLE_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"利用できないプロバイダーです: {provider}")
+
     try:
         video_id = extract_video_id(url)
     except ValueError as e:
@@ -185,13 +190,13 @@ async def get_setlist(url: str = Query(..., description="YouTube URL")):
 
     # 1. 概要欄のタイムスタンプ行のみ抽出してAIへ
     desc_lines = extract_timestamp_lines(video_info["description"])
-    setlist_result = extract_setlist(desc_lines)
+    setlist_result = extract_setlist(desc_lines, provider)
     source = "description"
 
     # 2. 概要欄になければコメント欄からタイムスタンプ行最多の1件を使用
     if not setlist_result.get("found"):
         comment_lines = get_best_setlist_comment(video_id)
-        setlist_result = extract_setlist(comment_lines)
+        setlist_result = extract_setlist(comment_lines, provider)
         source = "comments"
 
     return {
