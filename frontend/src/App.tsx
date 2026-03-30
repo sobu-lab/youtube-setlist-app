@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import SearchBar from './components/SearchBar'
 import VideoInfo from './components/VideoInfo'
 import SetlistPanel from './components/SetlistPanel'
@@ -16,7 +16,15 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<SetlistResponse | null>(null)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const [aiProvider, setAiProvider] = useState<string>('')
   const playerRef = useRef<PlayerRef>(null)
+
+  useEffect(() => {
+    fetch('/api/info')
+      .then((r) => r.json())
+      .then((d) => setAiProvider(d.ai_provider))
+      .catch(() => {})
+  }, [])
 
   const handleSearch = async (url: string) => {
     setLoading(true)
@@ -48,7 +56,9 @@ export default function App() {
         <div className="max-w-6xl mx-auto flex items-center gap-3">
           <span className="text-2xl">🎵</span>
           <h1 className="text-xl font-bold text-purple-400">歌枠セットリスト</h1>
-          <span className="text-xs text-gray-600 ml-2">powered by Gemini</span>
+          {aiProvider && (
+            <span className="text-xs text-gray-600 ml-2">powered by {aiProvider}</span>
+          )}
         </div>
       </header>
 

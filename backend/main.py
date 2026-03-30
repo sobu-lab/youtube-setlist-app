@@ -169,6 +169,11 @@ def extract_setlist(text: str) -> dict:
         return {"found": False, "setlist": [], "error": str(e)}
 
 
+@app.get("/api/info")
+async def get_info():
+    return {"ai_provider": AI_PROVIDER}
+
+
 @app.get("/api/setlist")
 async def get_setlist(url: str = Query(..., description="YouTube URL")):
     try:
