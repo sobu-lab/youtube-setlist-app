@@ -16,7 +16,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<SetlistResponse | null>(null)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const [provider, setProvider] = useState<string>('gemini')
+  const [provider, setProvider] = useState<string>('')
   const [availableProviders, setAvailableProviders] = useState<string[]>([])
   const playerRef = useRef<PlayerRef>(null)
 
@@ -73,7 +73,7 @@ export default function App() {
                       : 'text-gray-400 hover:text-gray-200'
                   }`}
                 >
-                  {p === 'openai' ? 'OpenAI' : 'Gemini'}
+                  {p === 'openai' ? 'OpenAI' : p === 'gemini' ? 'Gemini' : p === 'qwen' ? 'Qwen' : p}
                 </button>
               ))}
             </div>
@@ -96,7 +96,7 @@ export default function App() {
         {loading && (
           <div className="mt-12 flex flex-col items-center gap-4 text-gray-400">
             <div className="w-10 h-10 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-            <p>{provider === 'openai' ? 'OpenAI' : 'Gemini'} がセットリストを解析中...</p>
+            <p>{provider === 'openai' ? 'OpenAI' : provider === 'gemini' ? 'Gemini' : provider === 'qwen' ? 'Qwen' : provider} がセットリストを解析中...</p>
             <p className="text-xs text-gray-600">概要欄・コメント欄を確認しています</p>
           </div>
         )}

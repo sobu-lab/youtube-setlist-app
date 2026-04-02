@@ -3,8 +3,7 @@ import re
 import json
 import logging
 import googleapiclient.discovery
-import google.generativeai as genai
-from openai import OpenAI
+from llama_cpp import Llama
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -14,7 +13,7 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="YouTube Setlist API")
+app = FastAPI(title="YouTube Setlist API (llama.cpp experiment)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,18 +23,16 @@ app.add_middleware(
 )
 
 YOUTUBE_API_KEY = os.environ["YOUTUBE_API_KEY"]
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-# 利用可能なクライアントをすべて起動時に初期化
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+MODEL_PATH = "/model-cache/qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
-else:
-    gemini_model = None
-
-AVAILABLE_PROVIDERS = [p for p, ok in [("openai", bool(openai_client)), ("gemini", bool(gemini_model))] if ok]
+logger.info("Qwen2.5-0.5B GGUF をロード中...")
+_llm = Llama(
+    model_path=MODEL_PATH,
+    n_ctx=4096,
+    n_threads=2,
+    verbose=False,
+)
+logger.info("Qwen2.5-0.5B GGUF ロード完了")
 
 
 def extract_video_id(url: str) -> str:
@@ -86,36 +83,27 @@ TIMESTAMP_RE = re.compile(r"\d{1,2}:\d{2}")
 
 
 def extract_timestamp_lines(text: str) -> str:
-    """タイムスタンプを含む行だけを抽出して返す。"""
     lines = [l for l in text.splitlines() if TIMESTAMP_RE.search(l)]
     return "\n".join(lines)
 
 
 def get_best_setlist_comment(video_id: str) -> str:
-    """タイムスタンプ行が最も多いコメント1件のタイムスタンプ行を返す。"""
     yt = get_youtube_client()
     try:
         resp = (
             yt.commentThreads()
-            .list(
-                part="snippet",
-                videoId=video_id,
-                order="relevance",
-                maxResults=100,
-            )
+            .list(part="snippet", videoId=video_id, order="relevance", maxResults=100)
             .execute()
         )
     except Exception:
         return ""
 
-    best = ""
-    best_count = 0
+    best, best_count = "", 0
     for item in resp.get("items", []):
         text = item["snippet"]["topLevelComment"]["snippet"].get("textOriginal", "")
         count = sum(1 for l in text.splitlines() if TIMESTAMP_RE.search(l))
         if count > best_count:
-            best_count = count
-            best = text
+            best_count, best = count, text
 
     return extract_timestamp_lines(best) if best_count > 0 else ""
 
@@ -135,52 +123,56 @@ def parse_ai_json(text: str) -> dict:
     return json.loads(text.strip())
 
 
-def extract_setlist(text: str, provider: str) -> dict:
+def timestamp_to_seconds(ts: str) -> int:
+    parts = ts.strip().split(":")
+    try:
+        parts = [int(p) for p in parts]
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        if len(parts) == 3:
+            return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    except ValueError:
+        pass
+    return 0
+
+
+def fix_timestamp_seconds(result: dict) -> dict:
+    for item in result.get("setlist", []):
+        if item.get("timestamp_seconds", 0) == 0 and item.get("timestamp"):
+            item["timestamp_seconds"] = timestamp_to_seconds(item["timestamp"])
+    return result
+
+
+def extract_setlist(text: str) -> dict:
     if not text or len(text.strip()) < 5:
         return {"found": False, "setlist": []}
 
-    prompt = SETLIST_PROMPT.format(text=text[:2000])
+    prompt = SETLIST_PROMPT.format(text=text[:1000])
+    response = _llm.create_chat_completion(
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that outputs JSON only."},
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=2048,
+        temperature=0,
+    )
+    result_text = response["choices"][0]["message"]["content"]
+    logger.info(f"Qwen raw output: {result_text[:300]}")
 
     try:
-        if provider == "openai" and openai_client:
-            response = openai_client.chat.completions.create(
-                model="gpt-5.4-nano",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-            )
-            return parse_ai_json(response.choices[0].message.content)
-
-        elif provider == "gemini" and gemini_model:
-            resp = gemini_model.generate_content(prompt)
-            return parse_ai_json(resp.text)
-
-        else:
-            logger.error(f"AI provider '{provider}' が設定されていないか、APIキーが未設定です")
-            return {"found": False, "setlist": []}
-
+        return fix_timestamp_seconds(parse_ai_json(result_text))
     except Exception as e:
-        logger.error(f"AI extraction error (provider={provider}): {type(e).__name__}: {e}")
-        return {"found": False, "setlist": [], "error": str(e)}
+        logger.error(f"JSON parse error: {e} / raw: {result_text[:200]}")
+        return {"found": False, "setlist": [], "error": str(e), "raw": result_text[:500]}
 
 
 @app.get("/api/info")
 async def get_info():
-    return {"ai_provider": AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else "", "available_providers": AVAILABLE_PROVIDERS}
+    return {"ai_provider": "qwen", "available_providers": ["qwen"], "model": "Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M"}
 
 
 @app.get("/api/setlist")
-async def get_setlist(
-    url: str = Query(..., description="YouTube URL"),
-    provider: str = Query(default=None, description="AIプロバイダー (openai / gemini)"),
-):
-    if provider is None:
-        provider = AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else ""
-    if provider not in AVAILABLE_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"利用できないプロバイダーです: {provider}")
-
+async def get_setlist(url: str = Query(..., description="YouTube URL")):
     try:
         video_id = extract_video_id(url)
     except ValueError as e:
@@ -188,15 +180,13 @@ async def get_setlist(
 
     video_info = get_video_info(video_id)
 
-    # 1. 概要欄のタイムスタンプ行のみ抽出してAIへ
     desc_lines = extract_timestamp_lines(video_info["description"])
-    setlist_result = extract_setlist(desc_lines, provider)
+    setlist_result = extract_setlist(desc_lines)
     source = "description"
 
-    # 2. 概要欄になければコメント欄からタイムスタンプ行最多の1件を使用
     if not setlist_result.get("found"):
         comment_lines = get_best_setlist_comment(video_id)
-        setlist_result = extract_setlist(comment_lines, provider)
+        setlist_result = extract_setlist(comment_lines)
         source = "comments"
 
     return {
@@ -209,6 +199,7 @@ async def get_setlist(
         "setlist_found": setlist_result.get("found", False),
         "setlist_source": source if setlist_result.get("found") else None,
         "setlist": setlist_result.get("setlist", []),
+        "raw_output": setlist_result.get("raw"),
     }
 
 
@@ -229,6 +220,5 @@ if static_dir.exists():
 
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
