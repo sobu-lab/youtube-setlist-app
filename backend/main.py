@@ -167,26 +167,30 @@ def extract_setlist(text: str, provider: str) -> dict:
         return {"found": False, "setlist": [], "error": str(e)}
 
 
-def _build_ydl_opts(cookies_file: str | None) -> dict:
-    opts = {
+def _ydl_opts_android() -> dict:
+    """androidクライアント（cookies不要、SABR回避）"""
+    return {
         "format": "bestaudio/best",
-        "quiet": False,
-        "verbose": True,
+        "quiet": True,
+        "skip_download": True,
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
+    }
+
+
+def _ydl_opts_web(cookies_file: str) -> dict:
+    """webクライアント（cookies使用、SABRあり）"""
+    return {
+        "format": "bestaudio/best",
+        "quiet": True,
         "skip_download": True,
         "js_runtimes": {"node": {}, "deno": {}},
-        # mwebはcookies対応でSABRを回避できる可能性がある
-        "extractor_args": {"youtube": {"player_client": ["mweb", "web"]}},
+        "cookiefile": cookies_file,
     }
-    if cookies_file:
-        opts["cookiefile"] = cookies_file
-    return opts
 
 
 def _get_cookies_file() -> str | None:
-    """YOUTUBE_COOKIES_BASE64 環境変数から cookies ファイルを一時生成して返す。"""
     import base64, tempfile
     b64 = os.environ.get("YOUTUBE_COOKIES_BASE64", "")
-    logger.info(f"YOUTUBE_COOKIES_BASE64: {'set (' + str(len(b64)) + ' chars)' if b64 else 'NOT SET'}")
     if not b64:
         return None
     try:
@@ -194,21 +198,46 @@ def _get_cookies_file() -> str | None:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb")
         tmp.write(decoded)
         tmp.close()
-        logger.info(f"cookies file created: {tmp.name} ({len(decoded)} bytes)")
         return tmp.name
     except Exception as e:
         logger.error(f"cookies decode error: {e}")
         return None
 
 
+def _extract_audio_info(url: str) -> dict:
+    """androidで試みてbot検知されたらcookies付きwebにフォールバック"""
+    # 1st try: android（SABRなし、cookies不要）
+    try:
+        logger.info("trying android client (no cookies)")
+        with yt_dlp.YoutubeDL(_ydl_opts_android()) as ydl:
+            info = ydl.extract_info(url, download=False)
+        if info.get("url"):
+            logger.info("android client succeeded")
+            return info
+    except Exception as e:
+        logger.warning(f"android client failed: {e}")
+
+    # 2nd try: web + cookies
+    cookies_file = _get_cookies_file()
+    if not cookies_file:
+        raise RuntimeError("androidクライアントに失敗し、cookiesも未設定です")
+    try:
+        logger.info("trying web client with cookies")
+        with yt_dlp.YoutubeDL(_ydl_opts_web(cookies_file)) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return info
+    finally:
+        try:
+            os.unlink(cookies_file)
+        except OSError:
+            pass
+
+
 @app.get("/api/audio-url")
 async def get_audio_url(video_id: str = Query(..., description="YouTube video ID")):
     url = f"https://www.youtube.com/watch?v={video_id}"
-    cookies_file = _get_cookies_file()
-    logger.info(f"audio-url request: video_id={video_id}, cookies_file={cookies_file}")
     try:
-        with yt_dlp.YoutubeDL(_build_ydl_opts(cookies_file)) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _extract_audio_info(url)
         audio_url = info.get("url") or ""
         if not audio_url:
             raise HTTPException(status_code=400, detail="音声URLを取得できませんでした")
@@ -222,12 +251,6 @@ async def get_audio_url(video_id: str = Query(..., description="YouTube video ID
     except Exception as e:
         logger.error(f"yt-dlp error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=400, detail=f"音声URLの取得に失敗しました: {str(e)}")
-    finally:
-        if cookies_file:
-            try:
-                os.unlink(cookies_file)
-            except OSError:
-                pass
 
 
 @app.get("/api/info")
