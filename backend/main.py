@@ -173,8 +173,6 @@ def _build_ydl_opts(cookies_file: str | None) -> dict:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        # iOS クライアントを偽装してボット判定を回避
-        "extractor_args": {"youtube": {"player_client": ["ios"]}},
     }
     if cookies_file:
         opts["cookiefile"] = cookies_file
