@@ -173,6 +173,7 @@ def _build_ydl_opts(cookies_file: str | None) -> dict:
         "quiet": False,
         "verbose": True,
         "skip_download": True,
+        "js_runtimes": {"node": {}, "deno": {}},
     }
     if cookies_file:
         opts["cookiefile"] = cookies_file
