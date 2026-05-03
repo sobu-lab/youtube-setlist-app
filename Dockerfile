@@ -10,7 +10,7 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app/backend
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt yt-dlp
 COPY backend/ .
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 ENV PORT=8080

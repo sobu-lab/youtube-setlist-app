@@ -2,6 +2,7 @@ import os
 import re
 import json
 import logging
+import yt_dlp
 import googleapiclient.discovery
 import google.generativeai as genai
 from openai import OpenAI
@@ -164,6 +165,33 @@ def extract_setlist(text: str, provider: str) -> dict:
     except Exception as e:
         logger.error(f"AI extraction error (provider={provider}): {type(e).__name__}: {e}")
         return {"found": False, "setlist": [], "error": str(e)}
+
+
+@app.get("/api/audio-url")
+async def get_audio_url(video_id: str = Query(..., description="YouTube video ID")):
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio",
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        audio_url = info.get("url") or ""
+        if not audio_url:
+            raise HTTPException(status_code=400, detail="音声URLを取得できませんでした")
+        return {
+            "audio_url": audio_url,
+            "title": info.get("title", ""),
+            "duration": info.get("duration", 0),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"yt-dlp error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"音声URLの取得に失敗しました: {str(e)}")
 
 
 @app.get("/api/info")
