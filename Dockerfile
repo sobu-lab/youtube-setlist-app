@@ -9,10 +9,8 @@ RUN npm run build
 # Stage 2: FastAPI バックエンド
 FROM python:3.12-slim
 WORKDIR /app/backend
-# yt-dlp の JS チャレンジ処理に Node.js が必要
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs && \
-    ln -sf /usr/bin/nodejs /usr/bin/node && \
-    rm -rf /var/lib/apt/lists/*
+# Stage 1 から Node.js バイナリをコピー（yt-dlp の JS チャレンジ処理に必要）
+COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
