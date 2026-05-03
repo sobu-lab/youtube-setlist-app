@@ -36,7 +36,7 @@ if GEMINI_API_KEY:
 else:
     gemini_model = None
 
-AVAILABLE_PROVIDERS = [p for p, ok in [("openai", bool(openai_client)), ("gemini", bool(gemini_model))] if ok]
+AVAILABLE_PROVIDERS = [p for p, ok in [("gemini", bool(gemini_model)), ("openai", bool(openai_client))] if ok]
 
 
 def extract_video_id(url: str) -> str:
