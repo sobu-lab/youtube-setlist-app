@@ -174,6 +174,8 @@ def _build_ydl_opts(cookies_file: str | None) -> dict:
         "verbose": True,
         "skip_download": True,
         "js_runtimes": {"node": {}, "deno": {}},
+        # web系クライアントはSABR強制されるためiosを優先
+        "extractor_args": {"youtube": {"player_client": ["ios", "tv_embedded"]}},
     }
     if cookies_file:
         opts["cookiefile"] = cookies_file
