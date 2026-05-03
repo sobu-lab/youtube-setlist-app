@@ -183,18 +183,26 @@ def _get_cookies_file() -> str | None:
     """YOUTUBE_COOKIES_BASE64 環境変数から cookies ファイルを一時生成して返す。"""
     import base64, tempfile
     b64 = os.environ.get("YOUTUBE_COOKIES_BASE64", "")
+    logger.info(f"YOUTUBE_COOKIES_BASE64: {'set (' + str(len(b64)) + ' chars)' if b64 else 'NOT SET'}")
     if not b64:
         return None
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb")
-    tmp.write(base64.b64decode(b64))
-    tmp.close()
-    return tmp.name
+    try:
+        decoded = base64.b64decode(b64)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb")
+        tmp.write(decoded)
+        tmp.close()
+        logger.info(f"cookies file created: {tmp.name} ({len(decoded)} bytes)")
+        return tmp.name
+    except Exception as e:
+        logger.error(f"cookies decode error: {e}")
+        return None
 
 
 @app.get("/api/audio-url")
 async def get_audio_url(video_id: str = Query(..., description="YouTube video ID")):
     url = f"https://www.youtube.com/watch?v={video_id}"
     cookies_file = _get_cookies_file()
+    logger.info(f"audio-url request: video_id={video_id}, cookies_file={cookies_file}")
     try:
         with yt_dlp.YoutubeDL(_build_ydl_opts(cookies_file)) as ydl:
             info = ydl.extract_info(url, download=False)
