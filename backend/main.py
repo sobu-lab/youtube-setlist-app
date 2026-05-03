@@ -169,7 +169,7 @@ def extract_setlist(text: str, provider: str) -> dict:
 
 def _build_ydl_opts(cookies_file: str | None) -> dict:
     opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio",
+        "format": "bestaudio/best",
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
