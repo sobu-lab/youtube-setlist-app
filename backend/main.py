@@ -167,17 +167,38 @@ def extract_setlist(text: str, provider: str) -> dict:
         return {"found": False, "setlist": [], "error": str(e)}
 
 
-@app.get("/api/audio-url")
-async def get_audio_url(video_id: str = Query(..., description="YouTube video ID")):
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    ydl_opts = {
+def _build_ydl_opts(cookies_file: str | None) -> dict:
+    opts = {
         "format": "bestaudio[ext=m4a]/bestaudio",
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        # iOS クライアントを偽装してボット判定を回避
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
     }
+    if cookies_file:
+        opts["cookiefile"] = cookies_file
+    return opts
+
+
+def _get_cookies_file() -> str | None:
+    """YOUTUBE_COOKIES_BASE64 環境変数から cookies ファイルを一時生成して返す。"""
+    import base64, tempfile
+    b64 = os.environ.get("YOUTUBE_COOKIES_BASE64", "")
+    if not b64:
+        return None
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb")
+    tmp.write(base64.b64decode(b64))
+    tmp.close()
+    return tmp.name
+
+
+@app.get("/api/audio-url")
+async def get_audio_url(video_id: str = Query(..., description="YouTube video ID")):
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    cookies_file = _get_cookies_file()
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(_build_ydl_opts(cookies_file)) as ydl:
             info = ydl.extract_info(url, download=False)
         audio_url = info.get("url") or ""
         if not audio_url:
@@ -192,6 +213,12 @@ async def get_audio_url(video_id: str = Query(..., description="YouTube video ID
     except Exception as e:
         logger.error(f"yt-dlp error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=400, detail=f"音声URLの取得に失敗しました: {str(e)}")
+    finally:
+        if cookies_file:
+            try:
+                os.unlink(cookies_file)
+            except OSError:
+                pass
 
 
 @app.get("/api/info")
