@@ -8,6 +8,7 @@ env:
   PROJECT_ID: sobu-lab
   REGION: asia-northeast1
   IMAGE: asia-northeast1-docker.pkg.dev/sobu-lab/cloud-run-images/youtube-setlist-app
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   deploy:
