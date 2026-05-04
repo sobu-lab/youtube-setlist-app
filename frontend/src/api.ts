@@ -8,18 +8,3 @@ export async function fetchSetlist(url: string, provider: string): Promise<Setli
   }
   return res.json()
 }
-
-export type AudioUrlResponse = {
-  audio_url: string
-  title: string
-  duration: number
-}
-
-export async function fetchAudioUrl(videoId: string): Promise<AudioUrlResponse> {
-  const res = await fetch(`/api/audio-url?video_id=${encodeURIComponent(videoId)}`)
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Unknown error' }))
-    throw new Error(err.detail || '音声URLの取得に失敗しました')
-  }
-  return res.json()
-}

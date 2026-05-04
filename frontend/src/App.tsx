@@ -3,7 +3,6 @@ import SearchBar from './components/SearchBar'
 import VideoInfo from './components/VideoInfo'
 import SetlistPanel from './components/SetlistPanel'
 import YouTubePlayer from './components/YouTubePlayer'
-import BackgroundPlayer, { BackgroundPlayerHandle } from './components/BackgroundPlayer'
 import { fetchSetlist } from './api'
 import { SetlistResponse } from './types'
 
@@ -20,7 +19,6 @@ export default function App() {
   const [provider, setProvider] = useState<string>('gemini')
   const [availableProviders, setAvailableProviders] = useState<string[]>([])
   const playerRef = useRef<PlayerRef>(null)
-  const bgPlayerRef = useRef<BackgroundPlayerHandle>(null)
 
   useEffect(() => {
     fetch('/api/info')
@@ -52,9 +50,6 @@ export default function App() {
     if (playerRef.current) {
       playerRef.current.seekTo(seconds, true)
       playerRef.current.playVideo()
-    }
-    if (bgPlayerRef.current) {
-      bgPlayerRef.current.seekTo(seconds)
     }
   }
 
@@ -114,7 +109,6 @@ export default function App() {
               {/* プレイヤー (左3/5) */}
               <div className="lg:col-span-3">
                 <YouTubePlayer videoId={data.video_id} playerRef={playerRef} />
-                <BackgroundPlayer ref={bgPlayerRef} videoId={data.video_id} />
               </div>
               {/* セットリスト (右2/5) */}
               <div className="lg:col-span-2">
