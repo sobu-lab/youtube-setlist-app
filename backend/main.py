@@ -31,11 +31,15 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+    gemini_model = genai.GenerativeModel("gemini-3.1-flash-lite")
 else:
     gemini_model = None
 
-AVAILABLE_PROVIDERS = [p for p, ok in [("gemini", bool(gemini_model)), ("openai", bool(openai_client))] if ok]
+AVAILABLE_PROVIDERS = [
+    p
+    for p, ok in [("gemini", bool(gemini_model)), ("openai", bool(openai_client))]
+    if ok
+]
 
 
 def extract_video_id(url: str) -> str:
@@ -146,7 +150,10 @@ def extract_setlist(text: str, provider: str) -> dict:
             response = openai_client.chat.completions.create(
                 model="gpt-5.4-nano",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that outputs JSON.",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_object"},
@@ -158,17 +165,24 @@ def extract_setlist(text: str, provider: str) -> dict:
             return parse_ai_json(resp.text)
 
         else:
-            logger.error(f"AI provider '{provider}' が設定されていないか、APIキーが未設定です")
+            logger.error(
+                f"AI provider '{provider}' が設定されていないか、APIキーが未設定です"
+            )
             return {"found": False, "setlist": []}
 
     except Exception as e:
-        logger.error(f"AI extraction error (provider={provider}): {type(e).__name__}: {e}")
+        logger.error(
+            f"AI extraction error (provider={provider}): {type(e).__name__}: {e}"
+        )
         return {"found": False, "setlist": [], "error": str(e)}
 
 
 @app.get("/api/info")
 async def get_info():
-    return {"ai_provider": AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else "", "available_providers": AVAILABLE_PROVIDERS}
+    return {
+        "ai_provider": AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else "",
+        "available_providers": AVAILABLE_PROVIDERS,
+    }
 
 
 @app.get("/api/setlist")
@@ -179,7 +193,9 @@ async def get_setlist(
     if provider is None:
         provider = AVAILABLE_PROVIDERS[0] if AVAILABLE_PROVIDERS else ""
     if provider not in AVAILABLE_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"利用できないプロバイダーです: {provider}")
+        raise HTTPException(
+            status_code=400, detail=f"利用できないプロバイダーです: {provider}"
+        )
 
     try:
         video_id = extract_video_id(url)
